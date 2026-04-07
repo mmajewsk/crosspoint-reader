@@ -853,6 +853,49 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
   return item.empty() ? ellipsis : item + ellipsis;
 }
 
+std::string GfxRenderer::middleTruncatedText(const int fontId, const char* text, const int maxWidth,
+                                              const EpdFontFamily::Style style) const {
+  if (!text || maxWidth <= 0) return "";
+
+  std::string full = text;
+  if (getTextWidth(fontId, full.c_str(), style) <= maxWidth) return full;
+
+  const char* ellipsis = "\xe2\x80\xa6";
+
+  std::string head = full;
+  std::string tail;
+  const auto* raw = reinterpret_cast<const unsigned char*>(full.c_str());
+  size_t totalChars = 0;
+  while (*raw) {
+    utf8NextCodepoint(&raw);
+    ++totalChars;
+  }
+
+  size_t halfChars = totalChars / 2;
+  raw = reinterpret_cast<const unsigned char*>(full.c_str());
+  size_t headBytes = 0;
+  for (size_t i = 0; i < halfChars; ++i) {
+    utf8NextCodepoint(&raw);
+  }
+  headBytes = reinterpret_cast<const char*>(raw) - full.c_str();
+  head = full.substr(0, headBytes);
+  tail = full.substr(headBytes);
+
+  while (!head.empty() && !tail.empty()) {
+    std::string candidate = head + ellipsis + tail;
+    if (getTextWidth(fontId, candidate.c_str(), style) <= maxWidth) return candidate;
+    if (head.size() >= tail.size()) {
+      utf8RemoveLastChar(head);
+    } else {
+      const auto* p = reinterpret_cast<const unsigned char*>(tail.c_str());
+      utf8NextCodepoint(&p);
+      tail = tail.substr(reinterpret_cast<const char*>(p) - tail.c_str());
+    }
+  }
+
+  return truncatedText(fontId, text, maxWidth, style);
+}
+
 std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* text, const int maxWidth,
                                                   const int maxLines, const EpdFontFamily::Style style) const {
   std::vector<std::string> lines;

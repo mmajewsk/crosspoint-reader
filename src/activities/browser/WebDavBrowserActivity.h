@@ -25,6 +25,7 @@ class WebDavBrowserActivity final : public Activity {
   std::vector<std::string> navigationHistory;
   std::string currentUrl;
   int selectorIndex = 0;
+  int textScrollOffset = 0;
   std::string errorMessage;
   std::string statusMessage;
   size_t downloadProgress = 0;

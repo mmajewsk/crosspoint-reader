@@ -129,6 +129,8 @@ class GfxRenderer {
   int getLineHeight(int fontId) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+  std::string middleTruncatedText(int fontId, const char* text, int maxWidth,
+                                  EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than
   /// \p maxWidth pixels. Overflowing words and excess lines are UTF-8-safely
   /// truncated with an ellipsis (U+2026).

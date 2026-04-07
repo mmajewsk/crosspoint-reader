@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include "CrossPointSettings.h"
@@ -97,23 +98,40 @@ void WebDavBrowserActivity::loop() {
     }
 
     if (!entries.empty()) {
-      buttonNavigator.onNextRelease([this] {
+      buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] {
         selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entries.size());
+        textScrollOffset = 0;
         requestUpdate();
       });
 
-      buttonNavigator.onPreviousRelease([this] {
+      buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] {
         selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entries.size());
+        textScrollOffset = 0;
         requestUpdate();
       });
 
-      buttonNavigator.onNextContinuous([this] {
+      buttonNavigator.onContinuous({MappedInputManager::Button::Down}, [this] {
         selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
+        textScrollOffset = 0;
         requestUpdate();
       });
 
-      buttonNavigator.onPreviousContinuous([this] {
+      buttonNavigator.onContinuous({MappedInputManager::Button::Up}, [this] {
         selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), PAGE_ITEMS);
+        textScrollOffset = 0;
+        requestUpdate();
+      });
+
+      buttonNavigator.onRelease({MappedInputManager::Button::Left}, [this] {
+        if (textScrollOffset > 0) {
+          textScrollOffset -= 8;
+          if (textScrollOffset < 0) textScrollOffset = 0;
+          requestUpdate();
+        }
+      });
+
+      buttonNavigator.onRelease({MappedInputManager::Button::Right}, [this] {
+        textScrollOffset += 8;
         requestUpdate();
       });
     }
@@ -174,7 +192,7 @@ void WebDavBrowserActivity::render(RenderLock&&) {
   if (!entries.empty() && entries[selectorIndex].isCollection) {
     confirmLabel = tr(STR_OPEN);
   }
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, "<", ">");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   if (entries.empty()) {
@@ -186,8 +204,13 @@ void WebDavBrowserActivity::render(RenderLock&&) {
   const auto pageStartIndex = selectorIndex / PAGE_ITEMS * PAGE_ITEMS;
   renderer.fillRect(0, 60 + (selectorIndex % PAGE_ITEMS) * 30 - 2, pageWidth - 1, 30);
 
+  constexpr int textPadding = 40;
+  const int maxTextWidth = pageWidth - textPadding;
+  constexpr const char* ellipsis = "\xe2\x80\xa6";
+
   for (size_t i = pageStartIndex; i < entries.size() && i < static_cast<size_t>(pageStartIndex + PAGE_ITEMS); i++) {
     const auto& entry = entries[i];
+    const bool isSelected = (i == static_cast<size_t>(selectorIndex));
 
     std::string displayText;
     if (entry.isCollection) {
@@ -199,9 +222,30 @@ void WebDavBrowserActivity::render(RenderLock&&) {
       }
     }
 
-    auto item = renderer.truncatedText(UI_10_FONT_ID, displayText.c_str(), renderer.getScreenWidth() - 40);
-    renderer.drawText(UI_10_FONT_ID, 20, 60 + (i % PAGE_ITEMS) * 30, item.c_str(),
-                      i != static_cast<size_t>(selectorIndex));
+    std::string item;
+    if (isSelected && textScrollOffset > 0) {
+      const auto* p = reinterpret_cast<const unsigned char*>(displayText.c_str());
+      int charsSkipped = 0;
+      while (*p && charsSkipped < textScrollOffset) {
+        utf8NextCodepoint(&p);
+        ++charsSkipped;
+      }
+      if (!*p) {
+        textScrollOffset = charsSkipped > 0 ? charsSkipped - 1 : 0;
+        p = reinterpret_cast<const unsigned char*>(displayText.c_str());
+        charsSkipped = 0;
+        while (*p && charsSkipped < textScrollOffset) {
+          utf8NextCodepoint(&p);
+          ++charsSkipped;
+        }
+      }
+      std::string scrolled = std::string(ellipsis) + reinterpret_cast<const char*>(p);
+      item = renderer.truncatedText(UI_10_FONT_ID, scrolled.c_str(), maxTextWidth);
+    } else {
+      item = renderer.middleTruncatedText(UI_10_FONT_ID, displayText.c_str(), maxTextWidth);
+    }
+
+    renderer.drawText(UI_10_FONT_ID, 20, 60 + (i % PAGE_ITEMS) * 30, item.c_str(), !isSelected);
   }
 
   renderer.displayBuffer();
@@ -227,6 +271,7 @@ void WebDavBrowserActivity::fetchListing() {
 
   LOG_DBG("DAV", "Found %zu entries", entries.size());
   selectorIndex = 0;
+  textScrollOffset = 0;
 
   state = BrowserState::BROWSING;
   requestUpdate();
